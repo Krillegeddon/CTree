@@ -2,20 +2,12 @@
 
 namespace CTree
 {
-    public abstract class CTree32 : CTree<int>
-    {
-        protected CTree32(string path, string occurringLetters) : base(path, occurringLetters)
-        {
-        }
-    }
-
-    public abstract class CTree64 : CTree<long>
-    {
-        protected CTree64(string path, string occurringLetters) : base(path, occurringLetters)
-        {
-        }
-    }
-
+    /// <summary>
+    /// Base class for a CTree. Implement your own tree by simply inherit this. Note you can either inherit CTree<int> (for 32 bit) or
+    /// CTree<long> for 64-bit. Choose based on your needs. No other types are allowed. Note! This cannot be changed once the file
+    /// has been created.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
     public abstract class CTree<T> where T : struct, IConvertible, IComparable<T>, IEquatable<T>
     {
         private struct CNode
@@ -29,8 +21,18 @@ namespace CTree
         private T _fileSize;
         private Dictionary<char, int> _lookup;
         private int _numLookupChars;
+
+        /// <summary>
+        /// Constructor.
+        /// </summary>
+        /// <param name="path">The path to where the .ctree-file is stored.</param>
+        /// <param name="occurringLetters">Which characters to include. Note, this cannot be changed once the file has been created!
+        /// If only numeric values are used as key, this should typically be 0123456789.</param>
         protected CTree(string path, string occurringLetters)
         {
+            if ( !((typeof(T) == typeof(int)) || (typeof(T) == typeof(long))) )
+                throw new Exception("Not a valid type. Only int and long are supported.");
+
             _path = path;
             int i = 0;
             _lookup = new Dictionary<char, int>();
@@ -129,8 +131,6 @@ namespace CTree
             {
                 return (dynamic)sumLong;
             }
-
-
         }
 
         private static T Cast(int j)
@@ -189,7 +189,7 @@ namespace CTree
                 retObj.Addresses[i] = GetLongFromByteArray(barr, i * GetLongSize());
             }
             retObj.ContentAddress = GetLongFromByteArray(barr, (_numLookupChars + 0) * GetLongSize());
-            retObj.ContentLength = GetIntFromByteArray(barr, (_numLookupChars + 1) * 4);
+            retObj.ContentLength = GetIntFromByteArray(barr, (_numLookupChars + 1) * GetLongSize());
             return retObj;
         }
 
@@ -201,7 +201,7 @@ namespace CTree
                 Array.Copy(GetByteArrayFromLong(node.Addresses[i]), 0, retBuf, i * GetLongSize(), GetLongSize());
             }
             Array.Copy(GetByteArrayFromLong(node.ContentAddress), 0, retBuf, (_numLookupChars + 0) * GetLongSize(), GetLongSize());
-            Array.Copy(GetByteArrayFromInt(node.ContentLength), 0, retBuf, (_numLookupChars + 1) * 4, 4);
+            Array.Copy(GetByteArrayFromInt(node.ContentLength), 0, retBuf, (_numLookupChars + 1) * GetLongSize(), 4);
 
             return retBuf;
         }
@@ -248,11 +248,21 @@ namespace CTree
             return buffer;
         }
 
+        /// <summary>
+        /// Insert/update a value to the tree file.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="value"></param>
         protected void SetInternal(string key, byte[] value)
         {
             Traverse(key.ToLower(), value, true);
         }
 
+        /// <summary>
+        /// Gets a value from the tree file based on key.
+        /// </summary>
+        /// <param name="key"></param>
+        /// <returns></returns>
         protected byte[] GetInternal(string key)
         {
             return Traverse(key.ToLower(), null, false);
