@@ -365,6 +365,7 @@ namespace CTree
             return buffer;
         }
 
+        public int _numFlushes = 0;
         /// <summary>
         /// Insert/update a value to the tree file.
         /// </summary>
@@ -378,6 +379,7 @@ namespace CTree
                 var thisSize = GetBufferLength() + value.Length;
                 if (thisSize + _bulkBufferLength >= _bulkBuffer.Length)
                 {
+                    _numFlushes++;
                     FlushBulk();
                 }
             }
