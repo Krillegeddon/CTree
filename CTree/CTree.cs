@@ -365,7 +365,6 @@ namespace CTree
             return buffer;
         }
 
-        public int _numFlushes = 0;
         /// <summary>
         /// Insert/update a value to the tree file.
         /// </summary>
@@ -379,13 +378,21 @@ namespace CTree
                 var thisSize = GetBufferLength() + value.Length;
                 if (thisSize + _bulkBufferLength >= _bulkBuffer.Length)
                 {
-                    _numFlushes++;
                     FlushBulk();
                 }
+                Traverse(_fsForBulk, key.ToLower(), value, true);
             }
-
-            Traverse(_fsForBulk, key.ToLower(), value, true);
+            else
+            {
+                using (var fs = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite))
+                {
+                    Traverse(fs, key.ToLower(), value, true);
+                }
+            }
         }
+
+
+        private FileStream _fsForRead = null;
 
         /// <summary>
         /// Gets a value from the tree file based on key.
@@ -394,13 +401,13 @@ namespace CTree
         /// <returns></returns>
         protected byte[] GetInternal(string key)
         {
-            if (_fsForBulk == null)
+            //if (_fsForRead == null)
+            //{
+            //    _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
+            //}
+            using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
             {
-                _fsForBulk = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite);
-            }
-            //using (var fs = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite))
-            {
-                return Traverse(_fsForBulk, key.ToLower(), null, false);
+                return Traverse(fs, key.ToLower(), null, false);
             }
         }
 
@@ -416,6 +423,11 @@ namespace CTree
         private int _bulkBufferLength;
 
         public void StartBulk()
+        {
+            RestartBulk();
+        }
+
+        private void RestartBulk()
         {
             if (_fsForBulk != null)
             {
@@ -468,7 +480,7 @@ namespace CTree
 
             _fsForBulk.Close();
             _fsForBulk.Dispose();
-            StartBulk();
+            RestartBulk();
         }
 
         public void StopBulk()
