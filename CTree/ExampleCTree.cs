@@ -6,9 +6,9 @@ using System.Threading.Tasks;
 
 namespace CTree
 {
-    public class ExampleCTree : CTree
+    public class ExampleCTree : CTree32
     {
-        public ExampleCTree(string path) : base(path, "abcdefgh", CTreeType.x86)
+        public ExampleCTree(string path) : base(path, "abcdefgh")
         {
         }
 

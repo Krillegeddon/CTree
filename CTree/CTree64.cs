@@ -6,34 +6,20 @@ using System.Threading.Tasks;
 
 namespace CTree
 {
-    public enum CTreeType
+    public abstract class CTree64
     {
-        x86,
-        x64
-    }
-
-    public abstract class CTree
-    {
-        private struct CNode32
-        {
-            public int[] Addresses { get; set; }
-            public int ContentAddress { get; set; }
-            public int ContentLength { get; set; }
-        }
-
-        private struct CNode64
+        private struct CNode
         {
             public long[] Addresses { get; set; }
             public long ContentAddress { get; set; }
-            public long ContentLength { get; set; }
+            public int ContentLength { get; set; }
         }
 
-        private CTreeType _type;
         private string _path;
-        private int _fileSize;
+        private long _fileSize;
         private Dictionary<char, int> _lookup;
         private int _numLookupChars;
-        protected CTree(string path, string occurringLetters, CTreeType type)
+        protected CTree64(string path, string occurringLetters)
         {
             _path = path;
             int i = 0;
@@ -55,21 +41,11 @@ namespace CTree
                     ss.Close();
                 }
             }
-            _type = type;
         }
 
         private int GetBufferLength()
         {
-            if (_type == CTreeType.x86)
-                return (_numLookupChars * 4) + (4 + 4);
-            else
-                return (_numLookupChars * 8) + (8 + 8);
-        }
-
-        private static int GetIntFromByteArray(byte[] barr, int startIndex)
-        {
-            var i = (int)((barr[startIndex + 3] << 24) | (barr[startIndex + 2] << 16) | (barr[startIndex + 1] << 8) | barr[startIndex + 0]);
-            return i;
+            return (_numLookupChars * 8) + (8 + 8);
         }
 
         private static int GetLongFromByteArray(byte[] barr, int startIndex)
@@ -78,40 +54,34 @@ namespace CTree
             return i;
         }
 
-        private static byte[] GetByteArrayFromInt(int i)
-        {
-            var barr = BitConverter.GetBytes(i);
-            return barr;
-        }
-
         private static byte[] GetByteArrayFromLong(long i)
         {
             var barr = BitConverter.GetBytes(i);
             return barr;
         }
 
-        private CNode32 CreateCNode(byte[] barr)
+        private CNode CreateCNode(byte[] barr)
         {
-            var retObj = new CNode32();
-            retObj.Addresses = new int[_numLookupChars];
+            var retObj = new CNode();
+            retObj.Addresses = new long[_numLookupChars];
             for (var i = 0; i < _numLookupChars; i++)
             {
-                retObj.Addresses[i] = GetIntFromByteArray(barr, i * 4);
+                retObj.Addresses[i] = GetLongFromByteArray(barr, i * 4);
             }
-            retObj.ContentAddress = GetIntFromByteArray(barr, (_numLookupChars + 0) * 4);
-            retObj.ContentLength = GetIntFromByteArray(barr, (_numLookupChars + 1) * 4);
+            retObj.ContentAddress = GetLongFromByteArray(barr, (_numLookupChars + 0) * 4);
+            retObj.ContentLength = GetLongFromByteArray(barr, (_numLookupChars + 1) * 4);
             return retObj;
         }
 
-        private byte[] GetBuffer(CNode32 node)
+        private byte[] GetBuffer(CNode node)
         {
             var retBuf = new byte[GetBufferLength()];
             for (int i = 0; i < _numLookupChars; i++)
             {
-                Array.Copy(GetByteArrayFromInt(node.Addresses[i]), 0, retBuf, i * 4, 4);
+                Array.Copy(GetByteArrayFromLong(node.Addresses[i]), 0, retBuf, i * 4, 4);
             }
-            Array.Copy(GetByteArrayFromInt(node.ContentAddress), 0, retBuf, (_numLookupChars + 0) * 4, 4);
-            Array.Copy(GetByteArrayFromInt(node.ContentLength), 0, retBuf, (_numLookupChars + 1) * 4, 4);
+            Array.Copy(GetByteArrayFromLong(node.ContentAddress), 0, retBuf, (_numLookupChars + 0) * 4, 4);
+            Array.Copy(GetByteArrayFromLong(node.ContentLength), 0, retBuf, (_numLookupChars + 1) * 4, 4);
 
             return retBuf;
         }
@@ -132,14 +102,14 @@ namespace CTree
             return (int)addr;
         }
 
-        private void ReWriteBuffer(FileStream fs, int addr, byte[] buffer)
+        private void ReWriteBuffer(FileStream fs, long addr, byte[] buffer)
         {
             fs.Seek(addr, SeekOrigin.Begin);
             fs.Write(buffer, 0, buffer.Length);
             fs.Flush();
         }
 
-        private CNode32 ReadCNode(FileStream fs, int address)
+        private CNode ReadCNode(FileStream fs, long address)
         {
             var bufferLength = GetBufferLength();
             var buffer = new byte[bufferLength];
@@ -149,7 +119,7 @@ namespace CTree
             return retObj;
         }
 
-        private byte[] ReadContent(FileStream fs, int address, int length)
+        private byte[] ReadContent(FileStream fs, long address, int length)
         {
             var buffer = new byte[length];
             fs.Seek(address, SeekOrigin.Begin);
@@ -172,10 +142,10 @@ namespace CTree
             using (var fs = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite))
             {
                 var fi = new FileInfo(_path);
-                _fileSize = (int)fi.Length;
+                _fileSize = fi.Length;
 
-                CNode32 currentNode;
-                int currentAddress = 0;
+                CNode currentNode;
+                long currentAddress = 0;
                 if (_fileSize == 0)
                 {
                     if (!isUpdate)
