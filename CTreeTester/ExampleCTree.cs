@@ -1,12 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using CTree;
 using System.Text;
-using System.Threading.Tasks;
 
-namespace CTree
+namespace CTreeTester
 {
-    public class ExampleCTree : CTree32
+    public class ExampleCTree : CTree<long>
     {
         public ExampleCTree(string path) : base(path, "abcdefgh")
         {
