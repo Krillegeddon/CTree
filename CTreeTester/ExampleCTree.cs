@@ -5,7 +5,7 @@ namespace CTreeTester
 {
     public class ExampleCTree : CTree<long>
     {
-        public ExampleCTree(string path) : base(path, "0123456789")
+        public ExampleCTree(string path) : base(path, "0123456789", 20)
         {
         }
 
