@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using System.Net.Http.Headers;
 using System.Net.NetworkInformation;
 using System.Xml.Linq;
 
@@ -23,20 +24,26 @@ namespace CTree
         private T _fileSize;
         private Dictionary<char, int> _lookup;
         private int _numLookupChars;
+        private int _maxMegabyteInBuffer;
+        private int _maxCacheMegabyte;
 
         /// <summary>
         /// Constructor.
+        /// Note that the to maxMegabyte parameters can be played with depending on your client's specs. 20/20 MB would probably cut it for most cases. These two
+        /// parameters can be changed even after the .ctree file has been created the first time.
         /// </summary>
         /// <param name="path">The path to where the .ctree-file is stored.</param>
-        /// <param name="occurringLetters">Which characters to include. Note, this cannot be changed once the file has been created!
-        /// If only numeric values are used as key, this should typically be 0123456789.</param>
-        protected CTree(string path, string occurringLetters, int maxMegabyteRamUsage)
+        /// <param name="occurringLetters">Which characters to include. Note, this cannot be changed once the file has been created! If only numeric values are used as key, this should typically be 0123456789.</param>
+        /// <param name="maxMegabyteInBuffer">The internal buffer during a Bulk. New data is appended to this buffer until size > maxMegabyteInBuffer. Then the content is flushed to disk.
+        /// <param name="maxCacheMegabyte">During a Bulk, some data is cached. When the total bytes of this cache > maxCacheMegabyte, the content is flushed to disk. 
+        protected CTree(string path, string occurringLetters, int maxMegabyteInBuffer = 20, int maxCacheMegabyte = 20)
         {
             if (!((typeof(T) == typeof(int)) || (typeof(T) == typeof(long))))
                 throw new Exception("Not a valid type. Only int and long are supported.");
 
-            _maxMegabyteRamUsage = maxMegabyteRamUsage;
-            _bulkBuffer = new byte[_maxMegabyteRamUsage * 1000000];
+            _maxMegabyteInBuffer = maxMegabyteInBuffer;
+            _maxCacheMegabyte = maxCacheMegabyte;
+            _bulkBuffer = new byte[_maxMegabyteInBuffer * 1000000];
             _path = path;
             int i = 0;
             _lookup = new Dictionary<char, int>();
@@ -378,16 +385,26 @@ namespace CTree
                 var thisSize = GetBufferLength() + value.Length;
                 if (thisSize + _bulkBufferLength >= _bulkBuffer.Length)
                 {
-                    FlushBulk();
+                    FlushBulk(true);
                 }
+
+                // If the cache dictionaries exceeds the max wanted cache size - flush!
+                var numNodesInCache = _nodesInBulkThatHaveBeenAppended.Count + _nodesInFileButAreUnchanged.Count + _nodesInFileNeedingUpdateAfterBulk.Count;
+                var totalBytesInCache = numNodesInCache * GetBufferLength() / 1000000;
+                if (totalBytesInCache > _maxCacheMegabyte)
+                {
+                    FlushBulk(true);
+                }
+
                 Traverse(_fsForBulk, key.ToLower(), value, true);
             }
             else
             {
-                using (var fs = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite))
-                {
-                    Traverse(fs, key.ToLower(), value, true);
-                }
+                throw new Exception("You need to be in Bulk mode when setting data");
+                //using (var fs = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite))
+                //{
+                //    Traverse(fs, key.ToLower(), value, true);
+                //}
             }
         }
 
@@ -401,10 +418,11 @@ namespace CTree
         /// <returns></returns>
         protected byte[] GetInternal(string key)
         {
-            //if (_fsForRead == null)
-            //{
-            //    _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
-            //}
+            if (_fsForRead == null)
+            {
+                _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
+            }
+
             using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
             {
                 return Traverse(fs, key.ToLower(), null, false);
@@ -412,27 +430,57 @@ namespace CTree
         }
 
         private bool _isInBulk = false;
-        private Dictionary<T, CNode> _nodesInFileNeedingUpdateAfterBulk = null;
-        private Dictionary<T, CNode> _nodesInBulkThatHaveBeenAppended = null;
-        private Dictionary<T, CNode> _nodesInFileButAreUnchanged = null;
+        private Dictionary<T, CNode> _nodesInFileNeedingUpdateAfterBulk = null; // Nodes that were present in file before Bulk started.
+        private Dictionary<T, CNode> _nodesInBulkThatHaveBeenAppended = null; // New nodes that have been added during Bulk.
+        private Dictionary<T, CNode> _nodesInFileButAreUnchanged = null; // Nodes that have been visited during bulk...
         private Dictionary<T, byte[]> _valuesInFileNeedingUpdateAfterBulk = null;
         
-        private int _maxMegabyteRamUsage;
         private FileStream _fsForBulk;
         private byte[] _bulkBuffer;
         private int _bulkBufferLength;
 
         public void StartBulk()
         {
-            RestartBulk();
+            int numRetries = 0;
+        @retry:
+            try
+            {
+                RestartBulk();
+            }
+            catch
+            {
+                // Do some retries.. just in case the file handles are slow to release...
+                numRetries++;
+                if (numRetries > 20)
+                    throw;
+
+                if (_fsForBulk != null)
+                {
+                    _fsForBulk.Close();
+                    _fsForBulk.Dispose();
+                    _fsForBulk = null;
+                }
+
+                Thread.Sleep(100);
+                goto @retry;
+            }
+
         }
 
         private void RestartBulk()
         {
+            if (_fsForRead != null)
+            {
+                _fsForRead.Close();
+                _fsForRead.Dispose();
+                _fsForRead = null;
+            }
+
             if (_fsForBulk != null)
             {
                 _fsForBulk.Close();
                 _fsForBulk.Dispose();
+                _fsForBulk = null;
             }
 
             _nodesInFileNeedingUpdateAfterBulk = new Dictionary<T, CNode>();
@@ -444,7 +492,7 @@ namespace CTree
             _fsForBulk = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite);
         }
 
-        private void FlushBulk()
+        private void FlushBulk(bool doContinue)
         {
             // Loop through all newly appended nodes and adjust the bulkBuffer accordingly.
             foreach (var nodeTup in _nodesInBulkThatHaveBeenAppended)
@@ -480,15 +528,14 @@ namespace CTree
 
             _fsForBulk.Close();
             _fsForBulk.Dispose();
-            RestartBulk();
+            _fsForBulk = null;
+            if (doContinue)
+                RestartBulk();
         }
 
         public void StopBulk()
         {
-            FlushBulk();
-            _fsForBulk.Close();
-            _fsForBulk.Dispose();
-            _fsForBulk = null;
+            FlushBulk(false);
             _isInBulk = false;
         }
 
