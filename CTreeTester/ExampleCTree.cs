@@ -3,12 +3,18 @@ using System.Text;
 
 namespace CTreeTester
 {
-    public class ExampleCTree : CTree<long> // <int> = 32-bit addresses, <long> = 64-bit addresses, can support big files.
+    public class ExampleCTree : CTree64 // <int> = 32-bit addresses, <long> = 64-bit addresses, can support big files.
     {
+        private string _path;
         // Support only digits 0-9 for the key, and max RAM for buffer and cache.
         public ExampleCTree(string path) : base(path, "0123456789", 5, 5)
         {
+            _path = path;
         }
+
+        //private Dictionary<string, string> _cache = new Dictionary<string, string>();
+
+        private object _lockObj = new object();
 
         /// <summary>
         /// Set a value by key. Note that a StartBulk must have been executed prior to set. And make sure this
@@ -18,8 +24,18 @@ namespace CTreeTester
         /// <param name="value"></param>
         public void Set(string key, string value)
         {
+            // We are inside lock if getting here, so we can just call SetInternal and save to cache as wanted!
             var valueBarr = Encoding.UTF8.GetBytes(value);
             SetInternal(key, valueBarr);
+
+            //if (_cache.ContainsKey(key))
+            //{
+            //    _cache[key] = value;
+            //}
+            //else
+            //{
+            //    _cache.Add(key, value);
+            //}
         }
 
         /// <summary>
@@ -29,11 +45,40 @@ namespace CTreeTester
         /// <returns></returns>
         public string Get(string key)
         {
-            var barr = GetInternal(key.ToLower());
-            if (barr != null)
-                return Encoding.UTF8.GetString(barr);
-            else
-                return null;
+            lock (_lockObj)
+            {
+                //if (_cache.ContainsKey(key))
+                //{
+                //    return _cache[key];
+                //}
+
+                var barr = GetInternal(key.ToLower());
+                if (barr != null)
+                    return Encoding.UTF8.GetString(barr);
+                else
+                    return null;
+            }
+        }
+
+        public void StartBulk()
+        {
+            Monitor.Enter(_lockObj);
+            StartBulkInternal();
+        }
+
+        public void StopBulk()
+        {
+            StopBulkInternal();
+            Monitor.Exit(_lockObj);
+        }
+
+
+        public void Compact()
+        {
+            lock (_lockObj)
+            {
+                CompactInternal();
+            }
         }
     }
 }
