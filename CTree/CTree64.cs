@@ -307,6 +307,32 @@ namespace CTree
             }
         }
 
+        public long GetFileSizeInBytes()
+        {
+            if (_isInBulk)
+            {
+                throw new Exception("File size cannot be read during bulk");
+            }
+            Close();
+            var fi = new FileInfo(_path);
+            _fileSize = fi.Length;
+            return _fileSize;
+        }
+
+
+        public int GetNumberOfBytesInHoles()
+        {
+            if (_isInBulk)
+            {
+                throw new Exception("File size cannot be read during bulk");
+            }
+            Close();
+            _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
+            var barr = ReadValue(_fsForRead, 0, 4);
+            var holes = GetIntFromByteArray(barr, 0);
+            return holes;
+        }
+
         private void VerifyFile()
         {
             if (!File.Exists(_path))
@@ -480,114 +506,6 @@ namespace CTree
             _isInBulk = false;
         }
 
-
-        public List<string> EnumerateKeys()
-        {
-            if (_fsForRead == null)
-            {
-                _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
-            }
-
-            var keys = new List<string>();
-            using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
-            {
-                CompactRecursive(fs, 0, "", true, keys, null);
-            }
-            return keys;
-        }
-
-
-        private void CompactRecursive(FileStream fsSource, long addr, string key, bool isFirst, List<string> keys, CTree64 targetTree)
-        {
-            // If this address leads nowhwere, just return
-            if (addr <= 0 && !isFirst)
-                return;
-
-            // Read the node
-            var node = ReadCNode(fsSource, addr);
-
-            // If we've got a content/value address, set it into the .compact file.
-            if (node.ContentAddress > 0)
-            {
-                if (node.ContentLength != 2681 + key.Length + 1)
-                {
-                    int bbb = 8;
-                }
-                if (keys != null)
-                    keys.Add(key);
-                if (targetTree != null)
-                {
-                    var value = ReadValue(fsSource, node.ContentAddress, node.ContentLength);
-                    targetTree.SetInternal(key, value);
-                }
-            }
-
-            // Recursively go through all addresses along with the key that they would produce.
-            for (var i = 0; i < _numLookupChars; i++)
-            {
-                var newAddr = node.Addresses[i];
-                // If there are no children on this character, just continue...
-                if (newAddr <= 0)
-                    continue;
-                var c = GetCharFromIndex(i);
-                var newKey = key + c;
-                if (newKey == "20")
-                {
-                    int ccc = 9;
-                }
-                CompactRecursive(fsSource, newAddr, newKey, false, keys, targetTree);
-            }
-
-
-        }
-
-        protected void CompactInternal()
-        {
-            if (_fsForRead != null)
-            {
-                _fsForRead.Close();
-                _fsForRead.Dispose();
-                _fsForRead = null;
-            }
-
-            if (_fsForBulk != null)
-            {
-                _fsForBulk.Close();
-                _fsForBulk.Dispose();
-                _fsForBulk = null;
-            }
-
-            var compactPath = _path + ".compact";
-
-            if (File.Exists(compactPath))
-            {
-                File.Delete(compactPath);
-            }
-
-            var targetTree = new CTree64(compactPath, _occurringLetters, _maxMegabyteInBuffer, _maxCacheMegabyte);
-
-            targetTree.StartBulkInternal();
-
-            using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
-            {
-                CompactRecursive(fs, 0, "", true, null, targetTree);
-            }
-
-
-            //var keys = new List<string>();
-
-            targetTree.StopBulkInternal();
-            Close();
-            targetTree.Close();
-
-            //File.Delete(_path);
-            File.Move(_path, _path + ".todelete");
-            File.Move(_path + ".compact", _path);
-            File.Delete(_path + ".todelete");
-        }
-
-
-
         private byte[] Traverse(FileStream fs, string key, byte[] value, bool isUpdate)
         {
             var fi = new FileInfo(_path);
@@ -683,6 +601,114 @@ namespace CTree
             // Apparently, we were doing an update if we get to here... so then just dummy-return null.
             return null;
         }
+
+
+        public List<string> EnumerateKeys()
+        {
+            if (_fsForRead == null)
+            {
+                _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
+            }
+
+            var keys = new List<string>();
+            using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
+            {
+                CompactRecursive(fs, 0, "", true, keys, null);
+            }
+            return keys;
+        }
+
+
+        private void CompactRecursive(FileStream fsSource, long addr, string key, bool isFirst, List<string> keys, CTree64 targetTree)
+        {
+            // If this address leads nowhwere, just return
+            if (addr <= 0 && !isFirst)
+                return;
+
+            // Read the node
+            var node = ReadCNode(fsSource, addr);
+
+            // If we've got a content/value address, set it into the .compact file.
+            if (node.ContentAddress > 0)
+            {
+                if (node.ContentLength != 2681 + key.Length + 1)
+                {
+                    int bbb = 8;
+                }
+                if (keys != null)
+                    keys.Add(key);
+                if (targetTree != null)
+                {
+                    var value = ReadValue(fsSource, node.ContentAddress, node.ContentLength);
+                    targetTree.SetInternal(key, value);
+                }
+            }
+
+            // Recursively go through all addresses along with the key that they would produce.
+            for (var i = 0; i < _numLookupChars; i++)
+            {
+                var newAddr = node.Addresses[i];
+                // If there are no children on this character, just continue...
+                if (newAddr <= 0)
+                    continue;
+                var c = GetCharFromIndex(i);
+                var newKey = key + c;
+                if (newKey == "20")
+                {
+                    int ccc = 9;
+                }
+                CompactRecursive(fsSource, newAddr, newKey, false, keys, targetTree);
+            }
+
+
+        }
+
+        protected void CompactInternal()
+        {
+            if (_fsForRead != null)
+            {
+                _fsForRead.Close();
+                _fsForRead.Dispose();
+                _fsForRead = null;
+            }
+
+            if (_fsForBulk != null)
+            {
+                _fsForBulk.Close();
+                _fsForBulk.Dispose();
+                _fsForBulk = null;
+            }
+
+            var compactPath = _path + ".compact";
+
+            if (File.Exists(compactPath))
+            {
+                File.Delete(compactPath);
+            }
+
+            var targetTree = new CTree64(compactPath, _occurringLetters, _maxMegabyteInBuffer, _maxCacheMegabyte);
+
+            targetTree.StartBulkInternal();
+
+            using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
+            {
+                CompactRecursive(fs, 4, "", true, null, targetTree);
+            }
+
+
+            //var keys = new List<string>();
+
+            targetTree.StopBulkInternal();
+            Close();
+            targetTree.Close();
+
+            //File.Delete(_path);
+            File.Move(_path, _path + ".todelete");
+            File.Move(_path + ".compact", _path);
+            File.Delete(_path + ".todelete");
+        }
+
+
     }
 }
 

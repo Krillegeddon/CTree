@@ -45,9 +45,8 @@ void ReadStuff()
     Console.Write("Thread starting: " + Thread.CurrentThread.ManagedThreadId);
     for (int i = 977970; i < 1000001; i++)
     {
-        string valTot;
-        valTot = tree.Get(i.ToString());
-        var value = valTot.Length >= 10 ? valTot.Substring(0, 10) : valTot;
+        string valTot = tree.Get(i.ToString());
+        var value = string.IsNullOrEmpty(valTot) ? "-" :  valTot.Length >= 10 ? valTot.Substring(0, 10) : valTot;
         Console.WriteLine("[" + Thread.CurrentThread.ManagedThreadId + "]" + i + ": " + value);
     }
     Console.WriteLine("Done: " + Thread.CurrentThread.ManagedThreadId);
@@ -71,27 +70,39 @@ void UpdateStuff()
 }
 
 
-//CreateDatabase();
+CreateDatabase();
 
-//var xx = tree.Get("20");
+var xx = tree.Get("20");
 
+//var yy = tree.Get("977971");
+Console.WriteLine("Num holes: " + tree.GetNumberOfBytesInHoles());
+
+
+//Console.WriteLine("File size before: " + tree.GetFileSizeInBytes());
 //tree.Compact();
+//Console.WriteLine("File size after: " + tree.GetFileSizeInBytes());
 
-tree.StartBulk();
-tree.Set("1", "12345678");
-tree.Set("2", "12345678");
-tree.StopBulk();
+int bbb = 9;
 
-tree.StartBulk();
-tree.Set("1", "123456789");
-tree.Set("2", "1234567");
-tree.StopBulk();
+//tree.StartBulk();
+//tree.Set("1", "12345678");
+//tree.Set("2", "12345678");
+//tree.StopBulk();
+
+//Console.WriteLine("Num hole bytes after first run: " + tree.GetNumberOfBytesInHoles());
+
+//tree.StartBulk();
+//tree.Set("1", "123456789");
+//tree.Set("2", "1234567");
+//tree.StopBulk();
+
+//Console.WriteLine("Num hole bytes after second run: " + tree.GetNumberOfBytesInHoles());
 
 
-int bb = 9;
+//int bb = 9;
 
-Console.WriteLine(tree.Get("1"));
-Console.WriteLine(tree.Get("2"));
+//Console.WriteLine(tree.Get("1"));
+//Console.WriteLine(tree.Get("2"));
 
 
 
@@ -106,7 +117,7 @@ for (var i = 0; i < 2; i++)
 
 Thread.Sleep(100);
 
-// Start one thread that will update some values while the read-threads are working hard.
+//Start one thread that will update some values while the read-threads are working hard.
 var tu = new Thread(UpdateStuff);
 tu.Start();
 
