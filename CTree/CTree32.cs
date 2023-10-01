@@ -1,28 +1,28 @@
-﻿using System.Globalization;
-using System.IO;
-using System.Net.Http.Headers;
-using System.Net.NetworkInformation;
-using System.Xml.Linq;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace CTree
 {
     /// <summary>
     /// Base class for a CTree. Implement your own tree by simply inherit this.
     /// </summary>
-    public class CTree64
+    public class CTree32
     {
         private struct CNode
         {
-            public long[] Addresses { get; set; }
-            public long ContentAddress { get; set; }
+            public int[] Addresses { get; set; }
+            public int ContentAddress { get; set; }
             public int ContentLength { get; set; }
         }
 
-        private static int longLength = 8;
+        private static int longLength = 4;
 
         private string _path;
         private string _occurringLetters;
-        private long _fileSize;
+        private int _fileSize;
         private Dictionary<char, int> _lookup;
         private Dictionary<int, char> _lookupBackwards;
         private int _numLookupChars;
@@ -39,7 +39,7 @@ namespace CTree
         /// <param name="occurringLetters">Which characters to include. Note, this cannot be changed once the file has been created! If only numeric values are used as key, this should typically be 0123456789.</param>
         /// <param name="maxMegabyteInBuffer">The internal buffer during a Bulk. New data is appended to this buffer until size > maxMegabyteInBuffer. Then the content is flushed to disk.
         /// <param name="maxCacheMegabyte">During a Bulk, some data is cached. When the total bytes of this cache > maxCacheMegabyte, the content is flushed to disk. 
-        protected CTree64(string path, string occurringLetters, int maxMegabyteInBuffer = 20, int maxCacheMegabyte = 20)
+        protected CTree32(string path, string occurringLetters, int maxMegabyteInBuffer = 20, int maxCacheMegabyte = 20)
         {
             _occurringLetters = occurringLetters;
             _maxMegabyteInBuffer = maxMegabyteInBuffer;
@@ -76,12 +76,12 @@ namespace CTree
             return BitConverter.GetBytes(i);
         }
 
-        private static long GetLongFromByteArray(byte[] barr, int startIndex)
+        private static int GetLongFromByteArray(byte[] barr, int startIndex)
         {
-            return BitConverter.ToInt64(barr, startIndex);
+            return BitConverter.ToInt32(barr, startIndex);
         }
 
-        private static byte[] GetByteArrayFromLong(long i)
+        private static byte[] GetByteArrayFromLong(int i)
         {
             return BitConverter.GetBytes(i);
         }
@@ -89,7 +89,7 @@ namespace CTree
         private CNode CreateCNode(byte[] barr)
         {
             var retObj = new CNode();
-            retObj.Addresses = new long[_numLookupChars];
+            retObj.Addresses = new int[_numLookupChars];
             for (var i = 0; i < _numLookupChars; i++)
             {
                 retObj.Addresses[i] = GetLongFromByteArray(barr, i * longLength);
@@ -123,7 +123,7 @@ namespace CTree
         }
 
 
-        private long AppendBuffer(FileStream fs, byte[] buffer, int length)
+        private int AppendBuffer(FileStream fs, byte[] buffer, int length)
         {
             fs.Seek(0, SeekOrigin.End);
             var addr = fs.Position;
@@ -133,7 +133,7 @@ namespace CTree
             return _fileSize + length;
         }
 
-        private long AppendValue(FileStream fs, byte[] buffer)
+        private int AppendValue(FileStream fs, byte[] buffer)
         {
             if (_isInBulk)
             {
@@ -157,7 +157,7 @@ namespace CTree
             }
         }
 
-        private long AppendCNode(FileStream fs, CNode node)
+        private int AppendCNode(FileStream fs, CNode node)
         {
             var buffer = GetBuffer(node);
 
@@ -176,20 +176,20 @@ namespace CTree
                 _bulkBufferLength += buffer.Length;
                 // Add this node to the ones being appended during bulk!
                 _nodesInBulkThatHaveBeenAppended.Add(addr, node);
-                return (dynamic) addr;
+                return (dynamic)addr;
             }
             else
                 return AppendBuffer(fs, buffer, buffer.Length);
         }
 
-        private void ReWriteBuffer(FileStream fs, long addr, byte[] buffer)
+        private void ReWriteBuffer(FileStream fs, int addr, byte[] buffer)
         {
             fs.Seek(addr, SeekOrigin.Begin);
             fs.Write(buffer, 0, buffer.Length);
             fs.Flush();
         }
 
-        private void ReWriteValue(FileStream fs, long addr, byte[] buffer)
+        private void ReWriteValue(FileStream fs, int addr, byte[] buffer)
         {
             if (_isInBulk)
             {
@@ -209,7 +209,7 @@ namespace CTree
                 ReWriteBuffer(fs, addr, buffer);
         }
 
-        private void ReWriteCNode(FileStream fs, long addr, CNode node)
+        private void ReWriteCNode(FileStream fs, int addr, CNode node)
         {
             if (_isInBulk)
             {
@@ -239,7 +239,7 @@ namespace CTree
             }
         }
 
-        private CNode ReadCNode(FileStream fs, long addr)
+        private CNode ReadCNode(FileStream fs, int addr)
         {
             if (_isInBulk)
             {
@@ -269,7 +269,7 @@ namespace CTree
             return retObj;
         }
 
-        private byte[] ReadValue(FileStream fs, long address, int length)
+        private byte[] ReadValue(FileStream fs, int address, int length)
         {
             var buffer = new byte[length];
             fs.Seek(address, SeekOrigin.Begin);
@@ -304,7 +304,7 @@ namespace CTree
             }
         }
 
-        public long GetFileSizeInBytes()
+        public int GetFileSizeInBytes()
         {
             if (_isInBulk)
             {
@@ -312,7 +312,7 @@ namespace CTree
             }
             Close();
             var fi = new FileInfo(_path);
-            _fileSize = fi.Length;
+            _fileSize = (int) fi.Length;
             return _fileSize;
         }
 
@@ -364,11 +364,11 @@ namespace CTree
         }
 
         private bool _isInBulk = false;
-        private Dictionary<long, CNode> _nodesInFileNeedingUpdateAfterBulk = null; // Nodes that were present in file before Bulk started.
-        private Dictionary<long, CNode> _nodesInBulkThatHaveBeenAppended = null; // New nodes that have been added during Bulk.
-        private Dictionary<long, CNode> _nodesInFileButAreUnchanged = null; // Nodes that have been visited during bulk...
-        private Dictionary<long, byte[]> _valuesInFileNeedingUpdateAfterBulk = null;
-        
+        private Dictionary<int, CNode> _nodesInFileNeedingUpdateAfterBulk = null; // Nodes that were present in file before Bulk started.
+        private Dictionary<int, CNode> _nodesInBulkThatHaveBeenAppended = null; // New nodes that have been added during Bulk.
+        private Dictionary<int, CNode> _nodesInFileButAreUnchanged = null; // Nodes that have been visited during bulk...
+        private Dictionary<int, byte[]> _valuesInFileNeedingUpdateAfterBulk = null;
+
         private FileStream _fsForBulk;
         private byte[] _bulkBuffer;
         private int _bulkBufferLength;
@@ -421,15 +421,16 @@ namespace CTree
                 _fsForBulk = null;
             }
 
-            _nodesInFileNeedingUpdateAfterBulk = new Dictionary<long, CNode>();
-            _nodesInBulkThatHaveBeenAppended = new Dictionary<long, CNode>();
-            _nodesInFileButAreUnchanged = new Dictionary<long, CNode>();
-            _valuesInFileNeedingUpdateAfterBulk = new Dictionary<long, byte[]>();
+            _nodesInFileNeedingUpdateAfterBulk = new Dictionary<int, CNode>();
+            _nodesInBulkThatHaveBeenAppended = new Dictionary<int, CNode>();
+            _nodesInFileButAreUnchanged = new Dictionary<int, CNode>();
+            _valuesInFileNeedingUpdateAfterBulk = new Dictionary<int, byte[]>();
             _isInBulk = true;
             _bulkBufferLength = 0;
             _fsForBulk = new FileStream(_path, FileMode.Open, FileAccess.ReadWrite);
+
             var fi = new FileInfo(_path);
-            _fileSize = fi.Length;
+            _fileSize = (int)fi.Length;
         }
 
         public void Close()
@@ -508,7 +509,7 @@ namespace CTree
         private byte[] Traverse(FileStream fs, string key, byte[] value, bool isUpdate)
         {
             CNode currentNode;
-            long currentAddress = 4;
+            int currentAddress = 4;
             if (_fileSize <= 4 && _bulkBufferLength == 0)
             {
                 if (!isUpdate)
@@ -615,7 +616,7 @@ namespace CTree
         }
 
 
-        private void CompactRecursive(FileStream fsSource, long addr, string key, bool isFirst, List<string> keys, CTree64 targetTree)
+        private void CompactRecursive(FileStream fsSource, int addr, string key, bool isFirst, List<string> keys, CTree32 targetTree)
         {
             // If this address leads nowhwere, just return
             if (addr <= 0 && !isFirst)
@@ -682,7 +683,7 @@ namespace CTree
                 File.Delete(compactPath);
             }
 
-            var targetTree = new CTree64(compactPath, _occurringLetters, _maxMegabyteInBuffer, _maxCacheMegabyte);
+            var targetTree = new CTree32(compactPath, _occurringLetters, _maxMegabyteInBuffer, _maxCacheMegabyte);
 
             targetTree.StartBulkInternal();
 
@@ -707,4 +708,3 @@ namespace CTree
 
     }
 }
-

@@ -3,7 +3,7 @@ using System.Text;
 
 namespace CTreeTester
 {
-    public class ExampleCTree : CTree64 // <int> = 32-bit addresses, <long> = 64-bit addresses, can support big files.
+    public class ExampleCTree : CTree64
     {
         private string _path;
         // Support only digits 0-9 for the key, and max RAM for buffer and cache.
@@ -53,10 +53,14 @@ namespace CTreeTester
                 //}
 
                 var barr = GetInternal(key.ToLower());
+                string retStr;
                 if (barr != null)
-                    return Encoding.UTF8.GetString(barr);
+                    retStr = Encoding.UTF8.GetString(barr);
                 else
-                    return null;
+                    retStr = null;
+
+                //_cache.Add(key, retStr);
+                return retStr;
             }
         }
 
