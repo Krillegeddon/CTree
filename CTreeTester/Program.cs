@@ -5,7 +5,7 @@ using System.Xml.Schema;
 using CTree;
 using System.Text;
 
-var filePath = @"C:\Temp\ctreetest.db";
+var filePath = @"C:\Temp\test.ctree";
 File.Delete(filePath);
 
 // ExampleCTree is an example of how to implement a CTree. It has support for integers as key (0-9) and the value is a string.
