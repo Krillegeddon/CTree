@@ -357,9 +357,9 @@ namespace CTree
                 _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
             }
 
-            using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
+            //using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
             {
-                return Traverse(fs, key.ToLower(), null, false);
+                return Traverse(_fsForRead, key.ToLower(), null, false);
             }
         }
 

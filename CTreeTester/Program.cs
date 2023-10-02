@@ -85,6 +85,25 @@ Console.WriteLine("Num holes: " + tree.GetNumberOfBytesInHoles());
 
 int bbb = 9;
 
+var sw = new Stopwatch();
+
+sw.Start();
+for (int i = 897970; i < 1000001; i++)
+{
+    string valTot = tree.Get(i.ToString());
+    var value = string.IsNullOrEmpty(valTot) ? "-" : valTot.Length >= 10 ? valTot.Substring(0, 10) : valTot;
+    //Console.WriteLine("[" + Thread.CurrentThread.ManagedThreadId + "]" + i + ": " + value);
+}
+sw.Stop();
+
+Console.WriteLine("Elapesed ms: " + sw.ElapsedMilliseconds);
+
+
+int bb = 9;
+
+
+
+
 //tree.StartBulk();
 //tree.Set("1", "12345678");
 //tree.Set("2", "12345678");
