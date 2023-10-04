@@ -6,10 +6,16 @@ using System.Xml.Linq;
 
 namespace CTree
 {
+    public enum CTreeAddressing
+    {
+        x32bit,
+        x64bit
+    }
+
     /// <summary>
     /// Base class for a CTree. Implement your own tree by simply inherit this.
     /// </summary>
-    public class CTree64
+    public class CTree
     {
         private struct CNode
         {
@@ -18,8 +24,8 @@ namespace CTree
             public int ContentLength { get; set; }
         }
 
-        private static int longLength = 8;
-
+        private int _longLength;
+        private readonly CTreeAddressing _addressing;
         private string _path;
         private string _occurringLetters;
         private long _fileSize;
@@ -39,12 +45,13 @@ namespace CTree
         /// <param name="occurringLetters">Which characters to include. Note, this cannot be changed once the file has been created! If only numeric values are used as key, this should typically be 0123456789.</param>
         /// <param name="maxMegabyteInBuffer">The internal buffer during a Bulk. New data is appended to this buffer until size > maxMegabyteInBuffer. Then the content is flushed to disk.
         /// <param name="maxCacheMegabyte">During a Bulk, some data is cached. When the total bytes of this cache > maxCacheMegabyte, the content is flushed to disk. 
-        protected CTree64(string path, string occurringLetters, int maxMegabyteInBuffer = 20, int maxCacheMegabyte = 20)
+        protected CTree(CTreeAddressing addressing, string path, string occurringLetters, int maxMegabyteInBuffer = 20, int maxCacheMegabyte = 20)
         {
             _occurringLetters = occurringLetters;
             _maxMegabyteInBuffer = maxMegabyteInBuffer;
             _maxCacheMegabyte = maxCacheMegabyte;
             _bulkBuffer = new byte[_maxMegabyteInBuffer * 1000000];
+            _addressing = addressing;
             _path = path;
             int i = 0;
             _lookup = new Dictionary<char, int>();
@@ -59,11 +66,23 @@ namespace CTree
                 }
                 _numLookupChars = i;
             }
+
+            if (_addressing == CTreeAddressing.x32bit)
+            {
+                _longLength = 4;
+            }
+            else
+            {
+                _longLength = 8;
+            }
         }
 
+        private int _bufferLengthCache = 0;
         private int GetBufferLength()
         {
-            return (_numLookupChars * longLength) + (longLength + 4);
+            if ( _bufferLengthCache == 0)
+                _bufferLengthCache = (_numLookupChars * _longLength) + (_longLength + 4);
+            return _bufferLengthCache;
         }
 
         private static int GetIntFromByteArray(byte[] barr, int startIndex)
@@ -76,14 +95,26 @@ namespace CTree
             return BitConverter.GetBytes(i);
         }
 
-        private static long GetLongFromByteArray(byte[] barr, int startIndex)
+        private long GetLongFromByteArray(byte[] barr, int startIndex)
         {
-            return BitConverter.ToInt64(barr, startIndex);
+            if (_addressing == CTreeAddressing.x32bit)
+            {
+                var retValAsInt = BitConverter.ToInt32(barr, startIndex);
+                return (long)retValAsInt;
+            }
+            else
+                return BitConverter.ToInt64(barr, startIndex);
         }
 
-        private static byte[] GetByteArrayFromLong(long i)
+        private byte[] GetByteArrayFromLong(long i)
         {
-            return BitConverter.GetBytes(i);
+            if (_addressing == CTreeAddressing.x32bit)
+            {
+                var iAsInt = (int) i;
+                return BitConverter.GetBytes(iAsInt);   
+            }
+            else
+                return BitConverter.GetBytes(i);
         }
 
         private CNode CreateCNode(byte[] barr)
@@ -92,10 +123,10 @@ namespace CTree
             retObj.Addresses = new long[_numLookupChars];
             for (var i = 0; i < _numLookupChars; i++)
             {
-                retObj.Addresses[i] = GetLongFromByteArray(barr, i * longLength);
+                retObj.Addresses[i] = GetLongFromByteArray(barr, i * _longLength);
             }
-            retObj.ContentAddress = GetLongFromByteArray(barr, (_numLookupChars + 0) * longLength);
-            retObj.ContentLength = GetIntFromByteArray(barr, (_numLookupChars + 1) * longLength);
+            retObj.ContentAddress = GetLongFromByteArray(barr, (_numLookupChars + 0) * _longLength);
+            retObj.ContentLength = GetIntFromByteArray(barr, (_numLookupChars + 1) * _longLength);
             return retObj;
         }
 
@@ -104,10 +135,10 @@ namespace CTree
             var retBuf = new byte[GetBufferLength()];
             for (int i = 0; i < _numLookupChars; i++)
             {
-                Array.Copy(GetByteArrayFromLong(node.Addresses[i]), 0, retBuf, i * longLength, longLength);
+                Array.Copy(GetByteArrayFromLong(node.Addresses[i]), 0, retBuf, i * _longLength, _longLength);
             }
-            Array.Copy(GetByteArrayFromLong(node.ContentAddress), 0, retBuf, (_numLookupChars + 0) * longLength, longLength);
-            Array.Copy(GetByteArrayFromInt(node.ContentLength), 0, retBuf, (_numLookupChars + 1) * longLength, 4);
+            Array.Copy(GetByteArrayFromLong(node.ContentAddress), 0, retBuf, (_numLookupChars + 0) * _longLength, _longLength);
+            Array.Copy(GetByteArrayFromInt(node.ContentLength), 0, retBuf, (_numLookupChars + 1) * _longLength, 4);
 
             return retBuf;
         }
@@ -176,7 +207,7 @@ namespace CTree
                 _bulkBufferLength += buffer.Length;
                 // Add this node to the ones being appended during bulk!
                 _nodesInBulkThatHaveBeenAppended.Add(addr, node);
-                return (dynamic) addr;
+                return (dynamic)addr;
             }
             else
                 return AppendBuffer(fs, buffer, buffer.Length);
@@ -368,7 +399,7 @@ namespace CTree
         private Dictionary<long, CNode> _nodesInBulkThatHaveBeenAppended = null; // New nodes that have been added during Bulk.
         private Dictionary<long, CNode> _nodesInFileButAreUnchanged = null; // Nodes that have been visited during bulk...
         private Dictionary<long, byte[]> _valuesInFileNeedingUpdateAfterBulk = null;
-        
+
         private FileStream _fsForBulk;
         private byte[] _bulkBuffer;
         private int _bulkBufferLength;
@@ -615,7 +646,7 @@ namespace CTree
         }
 
 
-        private void CompactRecursive(FileStream fsSource, long addr, string key, bool isFirst, List<string> keys, CTree64 targetTree)
+        private void CompactRecursive(FileStream fsSource, long addr, string key, bool isFirst, List<string> keys, CTree targetTree)
         {
             // If this address leads nowhwere, just return
             if (addr <= 0 && !isFirst)
@@ -682,7 +713,7 @@ namespace CTree
                 File.Delete(compactPath);
             }
 
-            var targetTree = new CTree64(compactPath, _occurringLetters, _maxMegabyteInBuffer, _maxCacheMegabyte);
+            var targetTree = new CTree(_addressing, compactPath, _occurringLetters, _maxMegabyteInBuffer, _maxCacheMegabyte);
 
             targetTree.StartBulkInternal();
 

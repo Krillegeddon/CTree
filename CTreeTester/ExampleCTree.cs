@@ -3,11 +3,11 @@ using System.Text;
 
 namespace CTreeTester
 {
-    public class ExampleCTree : CTree64
+    public class ExampleCTree : CTree.CTree
     {
         private string _path;
         // Support only digits 0-9 for the key, and max RAM for buffer and cache.
-        public ExampleCTree(string path) : base(path, "0123456789", 5, 5)
+        public ExampleCTree(string path) : base(CTreeAddressing.x32bit, path, "0123456789", 5, 5)
         {
             _path = path;
         }
