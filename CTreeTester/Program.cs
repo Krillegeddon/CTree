@@ -141,5 +141,8 @@ Thread.Sleep(100);
 var tu = new Thread(UpdateStuff);
 tu.Start();
 
+Thread.Sleep(10000);
+tree.Compact();
+
 
 Thread.Sleep(100 * 60 * 1000);
