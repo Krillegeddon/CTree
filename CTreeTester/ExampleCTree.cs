@@ -10,7 +10,7 @@ namespace CTreeTester
         private Dictionary<string, string> _cache;
 
         // Support only digits 0-9 for the key, and max RAM for buffer and cache.
-        public ExampleCTree(string path, bool useCache) : base(CTreeAddressing.x64bit, path, "0123456789", 5, 5, true)
+        public ExampleCTree(string path, bool useCache) : base(CTreeAddressing.x64bit, path, "0123456789", 5000000, 5000000, true)
         {
             _path = path;
             _useCache = useCache;

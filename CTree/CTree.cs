@@ -35,8 +35,8 @@ namespace CTree
         private readonly Dictionary<char, int> _lookup; // Converts a character in the key to the index in the memory location array.
         private readonly Dictionary<int, char> _lookupBackwards; // In the backwards scenario (compact/enumerate), to convert a memory index to a character.
         private readonly int _numLookupChars; // How many characters that can can be used in the key. This is used to calculate buffer length.
-        private readonly int _maxMegabyteInBuffer; // How many bytes the buffer can have as maximum.
-        private readonly int _maxCacheMegabyte; // When doing a bulk, all affected nodes are stored in a dictionary. This will limit how much memory this will consume.
+        private readonly int _maxBytesInBuffer; // How many bytes the buffer can have as maximum.
+        private readonly int _maxCacheBytes; // When doing a bulk, all affected nodes are stored in a dictionary. This will limit how much memory this will consume.
         private int _numBytesInHoles; // Number of bytes that are part of holes. Read when starting a bulk, and then this value is increased during bulk.
         private bool _disposeBufferAfterBulk; // If to dispose bulkBuffer
 
@@ -48,18 +48,18 @@ namespace CTree
         /// <param name="addressing">If to use 32-bit or 64-bit addressing when saving nodes. 32-bit will save disk space, but will limit the maximum file size</param>
         /// <param name="path">The path to where the .ctree-file is stored.</param>
         /// <param name="occurringLetters">Which characters to include. Note, this cannot be changed once the file has been created! If only numeric values are used as key, this should typically be 0123456789.</param>
-        /// <param name="maxMegabyteInBuffer">The internal buffer during a Bulk. New data is appended to this buffer until size > maxMegabyteInBuffer. Then the content is flushed to disk.</param>
-        /// <param name="maxCacheMegabyte">During a Bulk, some data is cached. When the total bytes of this cache > maxCacheMegabyte, the content is flushed to disk. </param>
+        /// <param name="maxBytesInBuffer">The internal buffer during a Bulk. New data is appended to this buffer until size > maxBytesInBuffer. Then the content is flushed to disk.</param>
+        /// <param name="maxCacheBytes">During a Bulk, some data is cached. When the total bytes of this cache > maxCacheBytes, the content is flushed to disk. </param>
         /// <param name="disposeBufferAfterBulk">If to dispose the bulk buffer after each bulk. MIGHT be problematic to use this if there are many updates. Memory needs to be allocated together, and if you do this too many times, RAM will be fragmented. If few updates are expected this should not cause any issues. Decide per usecase!</param>
-        protected CTree(CTreeAddressing addressing, string path, string occurringLetters, int maxMegabyteInBuffer = 20, int maxCacheMegabyte = 20, bool disposeBufferAfterBulk = false)
+        protected CTree(CTreeAddressing addressing, string path, string occurringLetters, int maxBytesInBuffer = 20000000, int maxCacheBytes = 20000000, bool disposeBufferAfterBulk = false)
         {
             _occurringLetters = occurringLetters;
-            _maxMegabyteInBuffer = maxMegabyteInBuffer;
-            _maxCacheMegabyte = maxCacheMegabyte;
+            _maxBytesInBuffer = maxBytesInBuffer;
+            _maxCacheBytes = maxCacheBytes;
 
             // If we are not planning on disposing the bulkBuffer - then we can just create it now, and it will live as long as we live.
             if (!disposeBufferAfterBulk)
-                _bulkBuffer = new byte[_maxMegabyteInBuffer * 1000000];
+                _bulkBuffer = new byte[_maxBytesInBuffer];
             _addressing = addressing;
             _path = path;
             _disposeBufferAfterBulk = disposeBufferAfterBulk;
@@ -85,19 +85,30 @@ namespace CTree
             {
                 _longLength = 8;
             }
-            _fsForBulk = null;
-            _fsForRead = null;
+            Close();
         }
 
         // Return how many bytes a CNode takes up. It is as many available chars in key multiplied with longLength (4 or 8 depending on 32/64-bit) plus
         // one longLength to point to the address where the value is, and then an integer (4 bytes) to declare the length of the value.
         private int _bufferLengthCache = 0;
+        private int _bufferLengthInternalCache = 0;
+
+        // Buffer length for saving to disk
         private int GetBufferLength()
         {
             if ( _bufferLengthCache == 0)
                 _bufferLengthCache = (_numLookupChars * _longLength) + (_longLength + 4);
             return _bufferLengthCache;
         }
+
+        // Buffer length for keeping in RAM
+        private int GetInternalBufferLength()
+        {
+            if (_bufferLengthInternalCache == 0)
+                _bufferLengthInternalCache = (_numLookupChars * 8) + (8 + 4);
+            return _bufferLengthInternalCache;
+        }
+
 
         private static int GetIntFromByteArray(byte[] barr, int startIndex)
         {
@@ -109,6 +120,7 @@ namespace CTree
             return BitConverter.GetBytes(i);
         }
 
+        // Note that we convert via int32 if 32-bit has been selected.
         private long GetLongFromByteArray(byte[] barr, int startIndex)
         {
             if (_addressing == CTreeAddressing.x32bit)
@@ -120,6 +132,7 @@ namespace CTree
                 return BitConverter.ToInt64(barr, startIndex);
         }
 
+        // Note that the byte-array will be based on int32 if 32-bit has been selected.
         private byte[] GetByteArrayFromLong(long i)
         {
             if (_addressing == CTreeAddressing.x32bit)
@@ -340,6 +353,7 @@ namespace CTree
             return buffer;
         }
 
+
         /// <summary>
         /// Insert/update a value to the tree file.
         /// </summary>
@@ -353,8 +367,8 @@ namespace CTree
 
                 // If the cache dictionaries exceeds the max wanted cache size - flush!
                 var numNodesInCache = _nodesInBulkThatHaveBeenAppended.Count + _nodesInFileButAreUnchanged.Count + _nodesInFileNeedingUpdateAfterBulk.Count;
-                var totalBytesInCache = numNodesInCache * GetBufferLength() / 1000000;
-                if (totalBytesInCache > _maxCacheMegabyte * 1000000)
+                var totalBytesInCache = numNodesInCache * GetInternalBufferLength(); // Note, we want the internal buffer length, which is 64-bit longs always.
+                if (totalBytesInCache > _maxCacheBytes)
                 {
                     FlushBulk(true);
                 }
@@ -451,7 +465,7 @@ namespace CTree
         protected void StartBulkInternal()
         {
             if (_bulkBuffer == null)
-                _bulkBuffer = new byte[_maxMegabyteInBuffer * 1000000];
+                _bulkBuffer = new byte[_maxBytesInBuffer];
 
             VerifyFile();
             int numRetries = 0;
@@ -747,7 +761,7 @@ namespace CTree
             }
 
             // Create a CTree instance that will be used to fill with data.
-            var targetTree = new CTree(_addressing, compactPath, _occurringLetters, _maxBytesInBuffer, _maxCacheBytes * 1000000);
+            var targetTree = new CTree(_addressing, compactPath, _occurringLetters, _maxBytesInBuffer, _maxCacheBytes);
 
             targetTree.StartBulkInternal();
 
