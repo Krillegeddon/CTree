@@ -20,6 +20,11 @@ namespace CTree
     /// </summary>
     public class CTree
     {
+        // The internal structure of a node. Note that the addresses are stored as 32-bit to file in case 32-bit addressing mode is used!
+        // Basically, the Addresses-array is a list of all possible letters in the key. If you only have 0-9 as possible letters, and the
+        // next letter is a 3, then to traverse recursively through this tree, you go to the 3:rd address and read from there.
+        // If the node has a value/content, then the address and content length is stored here. You should be fine just looking up and return the
+        // data residing at the specified address, and the length.
         private struct CNode
         {
             public long[] Addresses { get; set; }
