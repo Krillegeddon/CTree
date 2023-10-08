@@ -38,6 +38,7 @@ namespace CTree
         private readonly int _maxMegabyteInBuffer; // How many bytes the buffer can have as maximum.
         private readonly int _maxCacheMegabyte; // When doing a bulk, all affected nodes are stored in a dictionary. This will limit how much memory this will consume.
         private int _numBytesInHoles; // Number of bytes that are part of holes. Read when starting a bulk, and then this value is increased during bulk.
+        private bool _disposeBufferAfterBulk; // If to dispose bulkBuffer
 
         /// <summary>
         /// Constructor.
@@ -47,16 +48,21 @@ namespace CTree
         /// <param name="addressing">If to use 32-bit or 64-bit addressing when saving nodes. 32-bit will save disk space, but will limit the maximum file size</param>
         /// <param name="path">The path to where the .ctree-file is stored.</param>
         /// <param name="occurringLetters">Which characters to include. Note, this cannot be changed once the file has been created! If only numeric values are used as key, this should typically be 0123456789.</param>
-        /// <param name="maxMegabyteInBuffer">The internal buffer during a Bulk. New data is appended to this buffer until size > maxMegabyteInBuffer. Then the content is flushed to disk.
-        /// <param name="maxCacheMegabyte">During a Bulk, some data is cached. When the total bytes of this cache > maxCacheMegabyte, the content is flushed to disk. 
-        protected CTree(CTreeAddressing addressing, string path, string occurringLetters, int maxMegabyteInBuffer = 20, int maxCacheMegabyte = 20)
+        /// <param name="maxMegabyteInBuffer">The internal buffer during a Bulk. New data is appended to this buffer until size > maxMegabyteInBuffer. Then the content is flushed to disk.</param>
+        /// <param name="maxCacheMegabyte">During a Bulk, some data is cached. When the total bytes of this cache > maxCacheMegabyte, the content is flushed to disk. </param>
+        /// <param name="disposeBufferAfterBulk">If to dispose the bulk buffer after each bulk. MIGHT be problematic to use this if there are many updates. Memory needs to be allocated together, and if you do this too many times, RAM will be fragmented. If few updates are expected this should not cause any issues. Decide per usecase!</param>
+        protected CTree(CTreeAddressing addressing, string path, string occurringLetters, int maxMegabyteInBuffer = 20, int maxCacheMegabyte = 20, bool disposeBufferAfterBulk = false)
         {
             _occurringLetters = occurringLetters;
             _maxMegabyteInBuffer = maxMegabyteInBuffer;
             _maxCacheMegabyte = maxCacheMegabyte;
-            _bulkBuffer = new byte[_maxMegabyteInBuffer * 1000000];
+
+            // If we are not planning on disposing the bulkBuffer - then we can just create it now, and it will live as long as we live.
+            if (!disposeBufferAfterBulk)
+                _bulkBuffer = new byte[_maxMegabyteInBuffer * 1000000];
             _addressing = addressing;
             _path = path;
+            _disposeBufferAfterBulk = disposeBufferAfterBulk;
             int i = 0;
             _lookup = new Dictionary<char, int>();
             _lookupBackwards = new Dictionary<int, char>();
@@ -444,6 +450,9 @@ namespace CTree
         // Starts a bulk session.
         protected void StartBulkInternal()
         {
+            if (_bulkBuffer == null)
+                _bulkBuffer = new byte[_maxMegabyteInBuffer * 1000000];
+
             VerifyFile();
             int numRetries = 0;
         @retry:
@@ -563,6 +572,8 @@ namespace CTree
             FlushBulk(false);
             _isInBulk = false;
             Close();
+            if (_disposeBufferAfterBulk)
+                _bulkBuffer = null;
         }
 
         // Traverses the file tree for Get or Set. When being in Set, new nodes will be created along the way if needed.
