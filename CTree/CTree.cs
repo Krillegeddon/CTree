@@ -16,7 +16,7 @@ namespace CTree
     }
 
     /// <summary>
-    /// Base class for a CTree. Implement your own tree by simply inherit this.
+    /// Base class for a CTree. Implement your own tree by simply inherit this. Source can be found at https://github.com/Krillegeddon/CTree.
     /// </summary>
     public class CTree
     {
