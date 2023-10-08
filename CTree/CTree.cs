@@ -6,6 +6,9 @@ using System.Xml.Linq;
 
 namespace CTree
 {
+    /// <summary>
+    /// To chose 32 or 64-bit addressing.
+    /// </summary>
     public enum CTreeAddressing
     {
         x32bit,
@@ -23,24 +26,25 @@ namespace CTree
             public long ContentAddress { get; set; }
             public int ContentLength { get; set; }
         }
-
-        private int _longLength;
-        private readonly CTreeAddressing _addressing;
-        private string _path;
-        private string _occurringLetters;
-        private long _fileSize;
-        private Dictionary<char, int> _lookup;
-        private Dictionary<int, char> _lookupBackwards;
-        private int _numLookupChars;
-        private int _maxMegabyteInBuffer;
-        private int _maxCacheMegabyte;
-        private int _numBytesInHoles;
+        
+        private readonly CTreeAddressing _addressing;// If to use 32 or 64-bit addressing
+        private readonly int _longLength; // How long a "long" is, if 32-bit, then it's 4, if 64-bit, it's 8.
+        private readonly string _path; // The path to the file we are operating on.
+        private readonly string _occurringLetters; // Which letters are possible to use in the key.
+        private long _fileSize; // Current file size. This is set when starting/restarting a Bulk operation.
+        private readonly Dictionary<char, int> _lookup; // Converts a character in the key to the index in the memory location array.
+        private readonly Dictionary<int, char> _lookupBackwards; // In the backwards scenario (compact/enumerate), to convert a memory index to a character.
+        private readonly int _numLookupChars; // How many characters that can can be used in the key. This is used to calculate buffer length.
+        private readonly int _maxMegabyteInBuffer; // How many bytes the buffer can have as maximum.
+        private readonly int _maxCacheMegabyte; // When doing a bulk, all affected nodes are stored in a dictionary. This will limit how much memory this will consume.
+        private int _numBytesInHoles; // Number of bytes that are part of holes. Read when starting a bulk, and then this value is increased during bulk.
 
         /// <summary>
         /// Constructor.
         /// Note that the to maxMegabyte parameters can be played with depending on your client's specs. 20/20 MB would probably cut it for most cases. These two
         /// parameters can be changed even after the .ctree file has been created the first time.
         /// </summary>
+        /// <param name="addressing">If to use 32-bit or 64-bit addressing when saving nodes. 32-bit will save disk space, but will limit the maximum file size</param>
         /// <param name="path">The path to where the .ctree-file is stored.</param>
         /// <param name="occurringLetters">Which characters to include. Note, this cannot be changed once the file has been created! If only numeric values are used as key, this should typically be 0123456789.</param>
         /// <param name="maxMegabyteInBuffer">The internal buffer during a Bulk. New data is appended to this buffer until size > maxMegabyteInBuffer. Then the content is flushed to disk.
@@ -75,8 +79,12 @@ namespace CTree
             {
                 _longLength = 8;
             }
+            _fsForBulk = null;
+            _fsForRead = null;
         }
 
+        // Return how many bytes a CNode takes up. It is as many available chars in key multiplied with longLength (4 or 8 depending on 32/64-bit) plus
+        // one longLength to point to the address where the value is, and then an integer (4 bytes) to declare the length of the value.
         private int _bufferLengthCache = 0;
         private int GetBufferLength()
         {
@@ -117,6 +125,8 @@ namespace CTree
                 return BitConverter.GetBytes(i);
         }
 
+        // Deserialize a node from a byte-array. The first bytes go into the Addresses-attribute, then there is information on where
+        // the content starts (address in file) and the length of the content.
         private CNode CreateCNode(byte[] barr)
         {
             var retObj = new CNode();
@@ -130,6 +140,7 @@ namespace CTree
             return retObj;
         }
 
+        // Serializes a CNode to a byte-array. Takes into account the length of selected long-length (8 bytes for 64-bit and 4 bytes for 32)
         private byte[] GetBuffer(CNode node)
         {
             var retBuf = new byte[GetBufferLength()];
@@ -143,17 +154,22 @@ namespace CTree
             return retBuf;
         }
 
+        // Returns the index of fixed items in the Addresses-array, depending on which character is read from the key.
         private int GetIndexForChar(char ch)
         {
             return _lookup[ch];
         }
 
+        // Based on the index in the Addresses-array, get the corresponding character. Used to build the actual key during
+        // an Enumerate/Compact operation.
         private char GetCharFromIndex(int i)
         {
             return _lookupBackwards[i];
         }
 
-
+        // Appends the buffer to the end of the file and returns the address. Note, this method is called when
+        // we ACTUALLY want to store data to the file. The callers (AppendValue and AppendNode) each have logic for when
+        // being within Bulk inserts. 
         private long AppendBuffer(FileStream fs, byte[] buffer, int length)
         {
             fs.Seek(0, SeekOrigin.End);
@@ -164,6 +180,7 @@ namespace CTree
             return _fileSize + length;
         }
 
+        // Appends value/content to the end of the file. If within bulk, then just add the buffer to the _bulkBuffer.
         private long AppendValue(FileStream fs, byte[] buffer)
         {
             if (_isInBulk)
@@ -188,6 +205,7 @@ namespace CTree
             }
         }
 
+        // Appends a CNode to the end of the file and returns the address. If in Bulk mode, add to _bulkBuffer instead.
         private long AppendCNode(FileStream fs, CNode node)
         {
             var buffer = GetBuffer(node);
@@ -213,6 +231,8 @@ namespace CTree
                 return AppendBuffer(fs, buffer, buffer.Length);
         }
 
+        // Re-writes a buffer to the file. I.e. write buffer to a specific address in the file.
+        // Caller will check for if we are in bulk or not. This will only be called outside bulk or at FlushBulk.
         private void ReWriteBuffer(FileStream fs, long addr, byte[] buffer)
         {
             fs.Seek(addr, SeekOrigin.Begin);
@@ -220,6 +240,8 @@ namespace CTree
             fs.Flush();
         }
 
+        // Updates value/content on an address. If within Bulk, store the buffer in dictionary so that
+        // the flush method knows to to actaully update in file.
         private void ReWriteValue(FileStream fs, long addr, byte[] buffer)
         {
             if (_isInBulk)
@@ -240,6 +262,8 @@ namespace CTree
                 ReWriteBuffer(fs, addr, buffer);
         }
 
+        // Updates value/content on an address. If within Bulk, store the buffer in dictionary so that
+        // the flush method knows to to actaully update in file.
         private void ReWriteCNode(FileStream fs, long addr, CNode node)
         {
             if (_isInBulk)
@@ -270,6 +294,7 @@ namespace CTree
             }
         }
 
+        // Reads a CNode from a given address.
         private CNode ReadCNode(FileStream fs, long addr)
         {
             if (_isInBulk)
@@ -300,6 +325,7 @@ namespace CTree
             return retObj;
         }
 
+        // Reads value/content from a specific address and length.
         private byte[] ReadValue(FileStream fs, long address, int length)
         {
             var buffer = new byte[length];
@@ -335,6 +361,11 @@ namespace CTree
             }
         }
 
+        /// <summary>
+        /// Returns the file size in bytes. Note that this cannot be called when being in bulk mode.
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="Exception"></exception>
         public long GetFileSizeInBytes()
         {
             if (_isInBulk)
@@ -347,7 +378,11 @@ namespace CTree
             return _fileSize;
         }
 
-
+        /// <summary>
+        /// Get the number of bytes that occupy holes in the files. 
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="Exception"></exception>
         public int GetNumberOfBytesInHoles()
         {
             if (_isInBulk)
@@ -361,6 +396,8 @@ namespace CTree
             return holes;
         }
 
+        // Check that the file exists. If not, add an integer 0 to it. This first integer in the file is the
+        // total number of byte-holes that are in the file.
         private void VerifyFile()
         {
             if (!File.Exists(_path))
@@ -372,7 +409,6 @@ namespace CTree
                 }
             }
         }
-
 
         private FileStream _fsForRead = null;
 
@@ -405,6 +441,7 @@ namespace CTree
         private int _bulkBufferLength;
         private int _numBytesInHolesInBulk;
 
+        // Starts a bulk session.
         protected void StartBulkInternal()
         {
             VerifyFile();
@@ -433,24 +470,14 @@ namespace CTree
                 Thread.Sleep(100);
                 goto @retry;
             }
-
         }
 
+        // Starts a bulk session, or restarts it from after flush.
         private void RestartBulk()
         {
-            if (_fsForRead != null)
-            {
-                _fsForRead.Close();
-                _fsForRead.Dispose();
-                _fsForRead = null;
-            }
-
-            if (_fsForBulk != null)
-            {
-                _fsForBulk.Close();
-                _fsForBulk.Dispose();
-                _fsForBulk = null;
-            }
+            // As a precaution, close FileStreams after each bulk. I have noticed very high RAM consumptions otherwise...
+            // Dont know exactly why, but I think it has to do with file system caching.
+            Close();
 
             _nodesInFileNeedingUpdateAfterBulk = new Dictionary<long, CNode>();
             _nodesInBulkThatHaveBeenAppended = new Dictionary<long, CNode>();
@@ -463,6 +490,9 @@ namespace CTree
             _fileSize = fi.Length;
         }
 
+        /// <summary>
+        /// Closes all file streams to the .ctree file.
+        /// </summary>
         public void Close()
         {
             if (_fsForRead != null)
@@ -480,6 +510,8 @@ namespace CTree
             }
         }
 
+        // Writes the bulkBuffer to disk. Also, aligns all CNode and Value buffers that have been marked for update
+        // during the bulk session.
         private void FlushBulk(bool doContinue)
         {
             // Count number of holes we have created.
@@ -517,29 +549,27 @@ namespace CTree
                 ReWriteBuffer(_fsForBulk, valTup.Key, valTup.Value);
             }
 
-            _nodesInFileNeedingUpdateAfterBulk.Clear();
-            _nodesInBulkThatHaveBeenAppended.Clear();
-            _nodesInFileButAreUnchanged.Clear();
-            _valuesInFileNeedingUpdateAfterBulk.Clear();
-            _bulkBufferLength = 0;
-
-            _fsForBulk.Close();
-            _fsForBulk.Dispose();
-            _fsForBulk = null;
             if (doContinue)
                 RestartBulk();
+            else
+                Close();
         }
 
+        /// <summary>
+        /// Ends a bulk session. Flushes all remaining changes to disk.
+        /// </summary>
         protected void StopBulkInternal()
         {
             FlushBulk(false);
             _isInBulk = false;
+            Close();
         }
 
+        // Traverses the file tree for Get or Set. When being in Set, new nodes will be created along the way if needed.
         private byte[] Traverse(FileStream fs, string key, byte[] value, bool isUpdate)
         {
             CNode currentNode;
-            long currentAddress = 4;
+            long currentAddress = 4; // First integer in the file is the number of holes.
             if (_fileSize <= 4 && _bulkBufferLength == 0)
             {
                 if (!isUpdate)
@@ -562,11 +592,14 @@ namespace CTree
                 currentNode = ReadCNode(fs, 4);
             }
 
+
+            // For each char in the key, from currentNode, find the next node to search from...
             for (var strIndex = 0; strIndex < key.Length; strIndex++)
             {
                 var currentChar = key[strIndex];
                 var addrIndex = GetIndexForChar(currentChar);
 
+                // Check if we need to create a new node for this letter.
                 if (currentNode.Addresses[addrIndex] == 0)
                 {
                     if (!isUpdate)
@@ -576,9 +609,9 @@ namespace CTree
                     }
 
                     var barr = new byte[GetBufferLength()];
-                    var tempNode = CreateCNode(barr);
+                    var tempNode = CreateCNode(barr); // Create a new node with everything 0. No addresses and no value/content
                     var newAddr = AppendCNode(fs, tempNode);
-                    currentNode.Addresses[addrIndex] = newAddr;
+                    currentNode.Addresses[addrIndex] = newAddr; // On the current node, for current letter, update the address to the newly added node.
                     // New address has been added to currentNode. Need to save it!
                     ReWriteCNode(fs, currentAddress, currentNode);
                 }
@@ -604,10 +637,8 @@ namespace CTree
                     _numBytesInHolesInBulk += currentNode.ContentLength;
                 }
 
-                // First time we set content on this node, just write the new content to the end of the file and update
-                // addresses. The same thing if the new (updated) content is larger than previously. Yes, there will be a hole
-                // in the file, but we are okay with this since it will be quite rare - one of the criteria for chosing CTree solution!
-                // (There will be compact methods in the future though).
+                // First time we set content on this node (or new value is larger than old value), just write the new content to the end of the file and update
+                // addresses.
                 var contentAddr = AppendValue(fs, value);
                 currentNode.ContentAddress = contentAddr;
                 currentNode.ContentLength = value.Length;
@@ -618,7 +649,7 @@ namespace CTree
                 // as holes.
                 _numBytesInHolesInBulk += (currentNode.ContentLength - value.Length);
 
-                // If the new content is shorter than the previous - just overwrite at the same address
+                // If the new content is shorter than the previous - just overwrite at the same address and update content length.
                 ReWriteValue(fs, currentNode.ContentAddress, value);
                 currentNode.ContentLength = value.Length;
             }
@@ -630,6 +661,10 @@ namespace CTree
         }
 
 
+        /// <summary>
+        /// Enumerates all keys in the file.
+        /// </summary>
+        /// <returns></returns>
         public List<string> EnumerateKeys()
         {
             if (_fsForRead == null)
@@ -645,7 +680,7 @@ namespace CTree
             return keys;
         }
 
-
+        // The recursive method for compacting
         private void CompactRecursive(FileStream fsSource, long addr, string key, bool isFirst, List<string> keys, CTree targetTree)
         {
             // If this address leads nowhwere, just return
@@ -680,31 +715,18 @@ namespace CTree
                     continue;
                 var c = GetCharFromIndex(i);
                 var newKey = key + c;
-                if (newKey == "20")
-                {
-                    int ccc = 9;
-                }
                 CompactRecursive(fsSource, newAddr, newKey, false, keys, targetTree);
             }
-
-
         }
 
+        /// <summary>
+        /// Compacts the file. There will be a twin file next to the original file ending with .compact.
+        /// If everything is successful, then the old file is deleted and the .compact file is renamed
+        /// to the original name.
+        /// </summary>
         protected void CompactInternal()
         {
-            if (_fsForRead != null)
-            {
-                _fsForRead.Close();
-                _fsForRead.Dispose();
-                _fsForRead = null;
-            }
-
-            if (_fsForBulk != null)
-            {
-                _fsForBulk.Close();
-                _fsForBulk.Dispose();
-                _fsForBulk = null;
-            }
+            Close();
 
             var compactPath = _path + ".compact";
 
@@ -713,6 +735,7 @@ namespace CTree
                 File.Delete(compactPath);
             }
 
+            // Create a CTree instance that will be used to fill with data.
             var targetTree = new CTree(_addressing, compactPath, _occurringLetters, _maxMegabyteInBuffer, _maxCacheMegabyte);
 
             targetTree.StartBulkInternal();
@@ -722,20 +745,14 @@ namespace CTree
                 CompactRecursive(fs, 4, "", true, null, targetTree);
             }
 
-
-            //var keys = new List<string>();
-
             targetTree.StopBulkInternal();
             Close();
             targetTree.Close();
 
-            //File.Delete(_path);
-            File.Move(_path, _path + ".todelete");
-            File.Move(_path + ".compact", _path);
-            File.Delete(_path + ".todelete");
+            File.Move(_path, _path + ".todelete"); // As a precaution, rename original file
+            File.Move(_path + ".compact", _path); // And then rename .compact to original file name
+            File.Delete(_path + ".todelete"); // If we've gotten this far, it is safe to remove the .todelete file (original file).
         }
-
-
     }
 }
 
