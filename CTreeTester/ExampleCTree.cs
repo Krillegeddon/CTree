@@ -6,13 +6,20 @@ namespace CTreeTester
     public class ExampleCTree : CTree.CTree
     {
         private string _path;
+        private bool _useCache;
+        private Dictionary<string, string> _cache;
+
         // Support only digits 0-9 for the key, and max RAM for buffer and cache.
-        public ExampleCTree(string path) : base(CTreeAddressing.x64bit, path, "0123456789", 5, 5, true)
+        public ExampleCTree(string path, bool useCache) : base(CTreeAddressing.x64bit, path, "0123456789", 5, 5, true)
         {
             _path = path;
+            _useCache = useCache;
+            if (_useCache)
+                _cache = new Dictionary<string, string>();
+            else
+                _cache = null;
         }
 
-        //private Dictionary<string, string> _cache = new Dictionary<string, string>();
 
         private object _lockObj = new object();
 
@@ -28,14 +35,17 @@ namespace CTreeTester
             var valueBarr = Encoding.UTF8.GetBytes(value);
             SetInternal(key, valueBarr);
 
-            //if (_cache.ContainsKey(key))
-            //{
-            //    _cache[key] = value;
-            //}
-            //else
-            //{
-            //    _cache.Add(key, value);
-            //}
+            if (_useCache)
+            {
+                if (_cache.ContainsKey(key))
+                {
+                    _cache[key] = value;
+                }
+                else
+                {
+                    _cache.Add(key, value);
+                }
+            }
         }
 
         /// <summary>
@@ -47,10 +57,10 @@ namespace CTreeTester
         {
             lock (_lockObj)
             {
-                //if (_cache.ContainsKey(key))
-                //{
-                //    return _cache[key];
-                //}
+                if (_cache != null && _cache.ContainsKey(key))
+                {
+                    return _cache[key];
+                }
 
                 var barr = GetInternal(key.ToLower());
                 string retStr;
@@ -59,7 +69,8 @@ namespace CTreeTester
                 else
                     retStr = null;
 
-                //_cache.Add(key, retStr);
+                if (_cache != null)
+                    _cache.Add(key, retStr);
                 return retStr;
             }
         }

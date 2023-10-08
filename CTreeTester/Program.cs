@@ -11,7 +11,7 @@ File.Delete(filePath);
 // ExampleCTree is an example of how to implement a CTree. It has support for integers as key (0-9) and the value is a string.
 // Note how I implemented two methods Get and Set... if you need to do more things, e.g. compress and encrypt - that is done
 // directly in this implementation class.
-var tree = new ExampleCTree(filePath);
+var tree = new ExampleCTree(filePath, false);
 var _lockObj = new object();
 
 void CreateDatabase()
