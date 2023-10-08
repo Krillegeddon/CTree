@@ -747,7 +747,7 @@ namespace CTree
             }
 
             // Create a CTree instance that will be used to fill with data.
-            var targetTree = new CTree(_addressing, compactPath, _occurringLetters, _maxMegabyteInBuffer, _maxCacheMegabyte);
+            var targetTree = new CTree(_addressing, compactPath, _occurringLetters, _maxBytesInBuffer, _maxCacheBytes * 1000000);
 
             targetTree.StartBulkInternal();
 
