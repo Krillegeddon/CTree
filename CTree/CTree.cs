@@ -249,7 +249,7 @@ namespace CTree
                 _bulkBufferLength += buffer.Length;
                 // Add this node to the ones being appended during bulk!
                 _nodesInBulkThatHaveBeenAppended.Add(addr, node);
-                return (dynamic)addr;
+                return addr;
             }
             else
                 return AppendBuffer(fs, buffer, buffer.Length);
@@ -418,6 +418,7 @@ namespace CTree
             _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
             var barr = ReadValue(_fsForRead, 0, 4);
             var holes = GetIntFromByteArray(barr, 0);
+            Close();
             return holes;
         }
 
@@ -447,6 +448,8 @@ namespace CTree
             if (_fsForRead == null)
             {
                 _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
+                var fi = new FileInfo(_path);
+                _fileSize = fi.Length;
             }
 
             //using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
@@ -697,15 +700,10 @@ namespace CTree
         /// <returns></returns>
         public List<string> EnumerateKeys()
         {
-            if (_fsForRead == null)
-            {
-                _fsForRead = new FileStream(_path, FileMode.Open, FileAccess.Read);
-            }
-
             var keys = new List<string>();
             using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Read))
             {
-                CompactRecursive(fs, 0, "", true, keys, null);
+                CompactRecursive(fs, 4, "", true, keys, null);
             }
             return keys;
         }
