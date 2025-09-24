@@ -272,13 +272,13 @@ namespace CTree
             {
                 if (_valuesInFileNeedingUpdateAfterBulk.ContainsKey(addr))
                 {
-                    // We will rewrite a node that has already been. This will only occur if the same key is updated
-                    // twice with different values...
+                    // We will rewrite a value that was NOT in the file from the beginning. This will only occur if the same value
+                    // is both added and then updated during the same bulk.
                     _valuesInFileNeedingUpdateAfterBulk[addr] = buffer;
                 }
                 else
                 {
-                    // This node is apparently already in the file before bulk started, so add him there.
+                    // This value was already in the file before bulk started, so add him in dictionary for later flushing.
                     _valuesInFileNeedingUpdateAfterBulk.Add(addr, buffer);
                 }
             }
@@ -286,7 +286,7 @@ namespace CTree
                 ReWriteBuffer(fs, addr, buffer);
         }
 
-        // Updates value/content on an address. If within Bulk, store the buffer in dictionary so that
+        // Updates CNode on an address. If within Bulk, store the buffer in dictionary so that
         // the flush method knows to to actaully update in file.
         private void ReWriteCNode(FileStream fs, long addr, CNode node)
         {
@@ -294,17 +294,18 @@ namespace CTree
             {
                 if (_nodesInBulkThatHaveBeenAppended.ContainsKey(addr))
                 {
-                    // We will rewrite a node that has already been
+                    // We will rewrite a node that has already been in the file. This will only occur if the same node is updated
+                    // twice with different values...
                     _nodesInBulkThatHaveBeenAppended[addr] = node;
                 }
                 else if (_nodesInFileNeedingUpdateAfterBulk.ContainsKey(addr))
                 {
-                    // This node was in file before bulk started, so we need to update him when bulk stops!
+                    // This node was in file before bulk started, so we need to update it when bulk stops!
                     _nodesInFileNeedingUpdateAfterBulk[addr] = node;
                 }
                 else
                 {
-                    // This node is apparently already in the file before bulk started, so add him there.
+                    // This node was in the file before bulk started, so add it in this dictionary so it will flushed later.
                     _nodesInFileNeedingUpdateAfterBulk.Add(addr, node);
                     // Also, if this node was present in the dictorary for untouched nodes, remove it from there!
                     if (_nodesInFileButAreUnchanged.ContainsKey(addr))
